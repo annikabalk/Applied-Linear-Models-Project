@@ -1,0 +1,582 @@
+---
+title: "678Final_Code"
+author: "Annika Balk"
+date: "`r Sys.Date()`"
+output:
+  word_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r, echo=TRUE, results='hide', fig.show='hide', warning=FALSE, message=FALSE}
+
+library(lmtest)
+library(glmmTMB)
+library(car)
+library(visdat)
+library(mice)
+library(miceadds)
+library(gt)
+library(gtable)
+library(MASS)
+library(gtsummary)
+library(tidyverse)
+library(GGally)
+library(rpart)
+library(tree)
+library(randomForest)
+library(VIM)
+library(rcompanion)
+library(dplyr)
+library(ggplot2)
+library(nnet)
+library(caret)
+library(vcd)
+library(lme4)
+
+setwd("C:/Users/annik/OneDrive/Desktop/BU Fall 2024/Final Projects Documentation")
+
+cac_data <- read.delim("Nady_Results JLA Journal final.tab")
+View(cac_data)
+cac_data$CV.mortality[is.na(cac_data$CV.mortality)] <- 0
+
+cac_data <- cac_data[-c(30,32,34,36,38,40,42,
+                        44,47,48,64,66,68,70,
+                        72,74,76,79,80,82,114,
+                        116,118,120,122,124,126,128,130,133),]
+
+#nonunique <- cac_data %>%
+  #group_by(code) %>%
+  #filter(n() > 1) %>%
+  #distinct(code) %>%
+ # ungroup()
+
+#nonunique_codes_list <- nonunique$code
+
+# Find the indices of rows in the original dataset where the code is in the nonunique codes list
+#indices_nonunique <- which(cac_data$code %in% nonunique_codes_list)
+
+# View the indices
+#mortality <- cac_data[indices_nonunique, c(1,32,33)]
+hist(cac_data$GFR)
+length(unique(cac_data$code))
+table(cac_data$group.CKD)
+table(cac_data$sex[26:160], cac_data$CAC.group[26:160])
+table(cac_data$HTN[26:160], cac_data$CAC.group[26:160])
+
+attr(cac_data$code, "label") = "Patient Code"
+attr(cac_data$group.CKD, "label") = "Severity of CKD, 1 = early stage, 2-4 = stages 3-5"
+attr(cac_data$age, "label") = "Age"
+attr(cac_data$sex, "label") = "Male=1, Female=2"
+attr(cac_data$HTN, "label") = "Hypertension, 1 = HTN present, 2 = No HTN"
+attr(cac_data$height, "label") = "Height in CM"
+attr(cac_data$weight, "label") = "Weight in KG"
+attr(cac_data$BMI, "label") = "Body Mass Index (kg/m^2)"
+attr(cac_data$HB, "label") = "Hemoglobin, Male (13.2 to 16.6 g/dl), Female (11.6 to 15 g/dl)"
+attr(cac_data$creat, "label") = "Serum Creatinine, Male (0.7–1.3 milligrams per deciliter (mg/dL)), Female (0.6–1.1 mg/dL) "
+attr(cac_data$urea, "label") = "Blood Urea Nitrogen, Male (8–24 mg/dL), Female (6–21 mg/dL)"
+attr(cac_data$TNF.alpha, "label") = "Tumor Necrosis Factor-alpha, normal reference range 0-8.1pg/mL"
+attr(cac_data$GFR, "label") = "Estimated glomerular filtration rate, lower values more advanced CKD"
+attr(cac_data$IL6, "label") = "interleukin-6, Normal value 5.186 pg/ml"
+attr(cac_data$CRP, "label") = "high-sensitivity C-reactive protein, Normal findings: < 1.0 mg/dL"
+attr(cac_data$TC, "label") = "Total Cholesterol"
+attr(cac_data$TG, "label") = "Total Triglycerides"
+attr(cac_data$HDL, "label") = "High Density Lipoprotein"
+attr(cac_data$LDL, "label") = "Low Density Lipoprotein"
+attr(cac_data$athero, "label") = "Artherosclerosis "
+attr(cac_data$CIMT, "label") = "carotid intima-media thickness via carotid ultrasonography"
+attr(cac_data$Plaques, "label") = "Presense of Plaque in heart"
+attr(cac_data$PTH, "label") = "Parathyroid Hormone, normal 10 to 55(pg/mL)"
+attr(cac_data$Ph, "label") = "Phosphorus, normal 2.8 and 4.5(mg/dL)"
+attr(cac_data$Ca, "label") = "Calcium 8.5 and 10.5(mg/dL)"
+attr(cac_data$Fetuin.A, "label") = "Fetuin A, normal 0.4–1 mg/mL, data values are multiplied by 1000 here"
+attr(cac_data$CAD, "label") = "Coronary Artery Disease"
+attr(cac_data$Coronary.Calcification, "label") = "CAC, Normally no coronary calcification present"
+attr(cac_data$CAC.group, "label") = "Group 0-2, where 0 represents no CAC, 2 most severe"
+
+gt_compact_fun <- function(x) {
+  gt::tab_options(x,
+    table.font.size = "small",
+    data_row.padding = gt::px(1),
+    summary_row.padding = gt::px(1),
+    grand_summary_row.padding = gt::px(1),
+    footnotes.padding = gt::px(1),
+    source_notes.padding = gt::px(1),
+    row_group.padding = gt::px(1)
+  )
+}
+
+CAC_dataDict <- cac_data |> 
+  imap(
+    ~ dplyr::tibble(
+      Variable = glue::glue("`{.y}`"), 
+      Class = class(.x),
+      Label = attr(.x, "label")
+    )
+  ) |> 
+  dplyr::bind_rows() |> 
+  gt::gt() |>
+  gt::tab_source_note("") |>
+  gt::fmt_markdown(columns = Variable) |>
+  gt::cols_align("left") |>
+  gt::tab_header("Contents of CKD Cardiovascular Data") |>
+  gt_compact_fun()
+
+(CAC_dataDict)
+
+#Generate random values using runif for both groups
+imputed_values_stage1or2 <- ifelse(cac_data$sex[1:25]==2, floor(runif(8, min = 60, max = 120)),floor(runif(17, min = 60, max = 130) ))  # Range 90-120 for women, 100-130 for men
+
+
+# Impute the values into the corresponding rows
+cac_data$GFR[1:25] <- imputed_values_stage1or2
+
+cac_data <- cac_data %>%
+  dplyr::mutate(
+    Obesity = case_when(
+      BMI < 18.5 ~ "Underweight",
+      BMI >= 18.5  & BMI < 25 ~ "Healthy",
+      BMI >= 25 & BMI < 30 ~ "Overweight",
+      BMI >= 30 ~ "Obese",
+    )
+  )
+
+cac_data <- cac_data %>%
+  dplyr::mutate(
+    CKD_stage = case_when(
+      GFR >= 90 & GFR <= 130 ~ "Stage 1",
+      GFR >= 60 & GFR <= 89 ~ "Stage 2",
+      GFR >= 30 & GFR <= 59 ~ "Stage 3",
+      GFR >= 15 & GFR <= 29 ~ "Stage 4",
+      GFR < 15 ~ "Stage 5",
+    )
+  )
+
+## Lets create factors for variables that have levels and are not continuous
+cac_data$sex <- factor(cac_data$sex, levels = c(1,2), labels = c("Male", "Female"))
+cac_data$HTN <- factor(cac_data$HTN, levels = c(1,2), labels = c("Hypertension", "No Hypertension"))
+cac_data$group.CKD <- as.factor(cac_data$group.CKD)
+cac_data$group <- as.factor(cac_data$group)
+cac_data$athero <- as.factor(cac_data$athero)
+cac_data$Plaques <- factor(cac_data$Plaques, levels = c(1,2), labels = c("No Plaque", "Plaque Present"))
+cac_data$CAD <- factor(cac_data$CAD, levels = c(0,1), labels = c("No CAD", "CAD Present"))
+cac_data$CAC.group <- as.factor(cac_data$CAC.group)
+cac_data$Overall.Mortality <- as.factor(cac_data$Overall.Mortality)
+cac_data$CV.mortality <- as.factor(cac_data$CV.mortality)
+cac_data$group.CKD <- factor(cac_data$group.CKD, levels = c(1,2,3,4), labels = c("Stage 1 or 2", "Stage 3", "Stage 4", "Stage 5"))
+
+catag_data <- cac_data[sapply(cac_data, is.factor) | sapply(cac_data, is.character)]
+
+# Generate all pairwise combinations of column names
+pairs <- combn(names(catag_data), 2, simplify = FALSE)
+
+# Initialize a results data frame
+catag_results <- data.frame(
+  Var1 = character(),
+  Var2 = character(),
+  ChiSq = numeric(),
+  pValue = numeric(),
+  stringsAsFactors = FALSE
+)
+
+# Loop through each pair and apply the Chi-Square Test
+for (pair in pairs) {
+  # Create contingency table for the two variables
+  table_pair <- table(catag_data[[pair[1]]], catag_data[[pair[2]]])
+  
+  # Perform Chi-Square Test
+  test <- chisq.test(table_pair)
+  
+  # Store the results
+  catag_results <- catag_results %>%
+    add_row(
+      Var1 = pair[1],
+      Var2 = pair[2],
+      ChiSq = test$statistic,
+      pValue = test$p.value
+    )
+}
+
+# Print all pairwise results
+View(catag_results)
+
+continuous_data <- cac_data[, sapply(cac_data, is.numeric)]
+
+# Initialize a results data frame
+cor_results <- data.frame(
+  Var1 = character(),
+  Var2 = character(),
+  Correlation = numeric(),
+  pValue = numeric(),
+  stringsAsFactors = FALSE
+)
+
+# Loop through all pairs of variables
+pairs_cont <- combn(names(continuous_data), 2, simplify = FALSE)
+for (pair in pairs_cont) {
+  # Perform correlation test
+  test <- cor.test(continuous_data[[pair[1]]], continuous_data[[pair[2]]], method = "pearson")
+  
+  # Store results
+  cor_results <- cor_results %>%
+    add_row(
+      Var1 = pair[1],
+      Var2 = pair[2],
+      Correlation = test$estimate,
+      pValue = test$p.value
+    )
+}
+
+# Print results
+View(cor_results)
+
+selected_varss <- colnames(cac_data)[c(2:5, 22:23, 29:31,34)] 
+
+# Filter the dataset and create the summary table
+
+
+cac_data %>%
+  dplyr::select(all_of(selected_varss)) %>% 
+  tbl_summary(
+    by = "group.CKD",  # Group by er visit yes or no this questionnaire
+    statistic = list(
+      all_continuous() ~ "{mean} ({sd})",  
+      all_categorical() ~ "{n} ({p}%)"     # Display count, percentage
+    ),
+  )%>%  # Add p-values for comparisons
+  add_overall() %>%  
+  modify_caption("**Table 1. Descriptive Statistics by CKD Stage**") %>%  # Table caption
+  bold_labels()  # Make variable labels bold
+
+## Stage vs feutin A
+ggplot(cac_data, aes(x=group.CKD, y=Fetuin.A)) + geom_boxplot() + ggtitle("Fetuin A By CKD Stage")
+
+ggplot(cac_data, aes(x=age, y=GFR)) + geom_point() + geom_smooth() +ggtitle("Age and GFR")
+
+ggplot(cac_data, aes(x=group.CKD, y=HB)) + geom_boxplot() + ggtitle("Hemoglobin By CKD Stage")
+
+ggplot(cac_data, aes(x=group.CKD, y=creat)) + geom_boxplot() + ggtitle("Creatinine By CKD Stage")
+
+ggplot(cac_data, aes(x=group.CKD, y=urea)) + geom_boxplot() + ggtitle("Urea By CKD Stage")
+
+ggplot(cac_data, aes(x=group.CKD, y=TNF.alpha)) + geom_boxplot() + ggtitle("TNF Alpha By CKD Stage")
+
+ggplot(cac_data, aes(x=group.CKD, y=GFR)) + geom_boxplot() + ggtitle("GFR By CKD Stage")
+
+ggplot(cac_data, aes(x=group.CKD, y=TC)) + geom_boxplot() + ggtitle("Total Cholesterol By CKD Stage")
+
+##Not much with this plot
+ggplot(cac_data, aes(x=HB, y=creat, colour= group.CKD))+geom_point()+geom_smooth(se=F) + ggtitle("Hemoglobin vs Creat")
+
+ggplot(cac_data, aes(x=urea, y=creat, colour= group.CKD))+geom_point()+geom_smooth(se=F) +ggtitle("urea vs creat")
+
+ggplot(cac_data, aes(x=GFR, y=TNF.alpha, colour= group.CKD))+geom_point() + ggtitle("GFR vs TNF Alpha")
+
+
+###This has a megaphone behavior
+ggplot(cac_data, aes(x=IL6, y=TNF.alpha, colour= group.CKD))+geom_point()+ ggtitle("TNF alpha vs IL6")
+
+ggplot(cac_data, aes(x=Plaques, y=CIMT)) + geom_boxplot() + ggtitle("CIMT By Plaque")
+
+### Now look at CAD compared to CIMT
+ggplot(cac_data, aes(x=group.CKD, y=CIMT)) + geom_boxplot() + ggtitle("CIMT By CKD Stage")
+
+ggplot(cac_data, aes(x=group.CKD, y=Coronary.Calcification)) + geom_boxplot() + ggtitle("CAC By CKD Stage")
+
+ggplot(cac_data, aes(x = group.CKD, fill = CAD)) +
+  geom_bar(position = "dodge") +  # Position bars side by side
+  labs(title = "Relationship between CAD and Group.CKD", 
+       x = "Group.CKD", 
+       y = "Count", 
+       fill = "CAD") +
+  theme_minimal()
+
+ggplot(cac_data, aes(x = group.CKD, fill = CAC.group)) +
+  geom_bar(position = "dodge") +  # Position bars side by side
+  labs(title = "Relationship between CAC Group and Group.CKD", 
+       x = "Group.CKD", 
+       y = "Count", 
+       fill = "CAC Group") +
+  theme_minimal()
+
+
+table(cac_data$CAD, cac_data$Plaques)
+table(cac_data$group.CKD, cac_data$CAD)
+
+### Now lets do the same thing but zoom in CAC
+table(CAC_group= cac_data$CAC.group, CAD = cac_data$CAD)
+table(CKD_Stage = cac_data$group.CKD, CAC_group = cac_data$CAC.group)
+#########################################################################
+######################################################################
+## MULTINOMIAL MODELING
+
+#Null Model
+null_cimt <- nnet::multinom(group.CKD ~ 1, data=cac_data)
+AIC(null_cimt)
+summary(null_cimt)
+table(cac_data$group.CKD)
+
+# Progression Of Models below
+CIMT_model2 <- nnet::multinom(group.CKD ~ CAD + TC +sex + age + HTN +age:HTN +Obesity , data = cac_data)
+CIMT_model2
+#This model is better than the null but I bet the missclassification error will be high
+
+predicted_CIMT2 <- predict(CIMT_model2, type = "probs")
+predicted_class2 <- predict(CIMT_model2, type="class")
+# Predicted classes
+CIMT_classes2 <- apply(predicted_CIMT2, 1, which.max) 
+con_mat2 <- confusionMatrix(predicted_class2, cac_data$group.CKD)
+con_mat2
+
+conf_df2 <- as.data.frame(con_mat2$table)
+
+# Plot heatmap
+ggplot(conf_df2, aes(x = Prediction, y = Reference, fill = Freq)) +
+  geom_tile() +
+  geom_text(aes(label = Freq), color = "white") +
+  scale_fill_gradient(low = "blue", high = "red") +
+  labs(title = "Confusion Matrix Heatmap",
+       x = "Predicted Category",
+       y = "Actual Category") +
+  theme_minimal()
+
+### Third Model
+CIMT_model3 <-  nnet::multinom(group.CKD ~ CIMT+ + HTN + age +sex + age:HTN +TC +Obesity, data = cac_data)
+CIMT_model3
+
+predicted_CIMT3 <- predict(CIMT_model3, type = "probs")
+predicted_class3 <- predict(CIMT_model3, type="class")
+# Predicted classes
+CIMT_classes3 <- apply(predicted_CIMT3, 1, which.max) 
+con_mat3 <- confusionMatrix(predicted_class3, cac_data$group.CKD)
+con_mat3
+
+conf_df3 <- as.data.frame(con_mat3$table)
+
+# Plot heatmap
+ggplot(conf_df3, aes(x = Prediction, y = Reference, fill = Freq)) +
+  geom_tile() +
+  geom_text(aes(label = Freq), color = "white") +
+  scale_fill_gradient(low = "blue", high = "red") +
+  labs(title = "Confusion Matrix Heatmap",
+       x = "Predicted Category",
+       y = "Actual Category") +
+  theme_minimal()
+
+## Fourth Model No Interaction
+CIMT_model4 <-  nnet::multinom(group.CKD ~ CAC.group + sex + age + HTN +Obesity +TC  , data = cac_data)
+CIMT_model4
+
+predicted_CIMT4 <- predict(CIMT_model4, type = "probs")
+predicted_class4 <- predict(CIMT_model4, type="class")
+# Predicted classes
+CIMT_classes4 <- apply(predicted_CIMT4, 1, which.max) 
+con_mat4 <- confusionMatrix(predicted_class4, cac_data$group.CKD)
+con_mat4
+
+conf_df4 <- as.data.frame(con_mat4$table)
+
+# Plot heatmap
+ggplot(conf_df4, aes(x = Prediction, y = Reference, fill = Freq)) +
+  geom_tile() +
+  geom_text(aes(label = Freq), color = "white") +
+  scale_fill_gradient(low = "blue", high = "red") +
+  labs(title = "Confusion Matrix Heatmap",
+       x = "Predicted Category",
+       y = "Actual Category") +
+  theme_minimal()
+
+# Fifth Model Interaction Included
+CIMT_model5 <-  nnet::multinom(group.CKD ~ CAC.group + sex + age + HTN +age:HTN + Obesity +TC  , data = cac_data)
+CIMT_model5
+
+predicted_CIMT5 <- predict(CIMT_model5, type = "probs")
+predicted_class5 <- predict(CIMT_model5, type="class")
+# Predicted classes
+CIMT_classes5 <- apply(predicted_CIMT5, 1, which.max) 
+con_mat5 <- confusionMatrix(predicted_class5, cac_data$group.CKD)
+con_mat5
+
+conf_df5 <- as.data.frame(con_mat5$table)
+
+# Plot heatmap
+ggplot(conf_df5, aes(x = Prediction, y = Reference, fill = Freq)) +
+  geom_tile() +
+  geom_text(aes(label = Freq), color = "white") +
+  scale_fill_gradient(low = "blue", high = "red") +
+  labs(title = "Confusion Matrix Heatmap for Final Multinomial",
+       x = "Predicted Category",
+       y = "Actual Category") +
+  theme_minimal()
+
+### Justification for interaction
+# Generate predicted probabilities for both models
+cac_data$prob_model4 <- predict(CIMT_model4, type = "probs")[, 1]  
+cac_data$prob_model5 <- predict(CIMT_model5, type = "probs")[, 1] 
+
+ggplot() +
+  geom_line(data = cac_data, aes(x = age, y = prob_model4, color = "Without Interaction"), size = 1) +
+  geom_line(data = cac_data, aes(x = age, y = prob_model5, color = "With Interaction"), size = 1) +
+  facet_wrap(~HTN, scales = "free") +
+  labs(title = "Comparison of Predicted Probabilities",
+       subtitle = "Effect of Including Interaction Term (age:HTN)",
+       x = "Age",
+       y = "Predicted Probability",
+       color = "Model") +
+  theme_minimal() +
+  scale_color_manual(values = c("Without Interaction" = "blue", "With Interaction" = "red"))
+
+
+### collinearity check
+
+cor(cac_data$Coronary.Calcification, cac_data$BMI)
+chisq.test(table(cac_data$CAC.group, cac_data$HTN))
+
+
+##############################################################################################
+###########################################################################################
+## HIERACHICAL MODEL
+null_hier <- lm(log(GFR)~1, data=cac_data)
+null_predict <- predict(null_hier)
+head(null_predict)
+
+hierarchical_model <- lmer(
+  GFR ~ age + sex + HTN + Obesity +(1 | CAC.group),  
+  data = cac_data)
+
+summary(hierarchical_model)
+
+coeffs_hierarch <- coef(summary(hierarchical_model))
+p <- pnorm(abs(coeffs_hierarch[, "t value"]), lower.tail = FALSE) * 2
+cbind(coeffs_hierarch, "p value" = round(p,3))
+
+cac_data$predict_hier <- predict(hierarchical_model, re.form = ~(1 | CAC.group))
+
+ggplot(cac_data, aes(x = age, y = GFR, color = as.factor(CAC.group))) +
+  geom_point(alpha = 0.6) +
+  geom_smooth(aes(y = predict_hier), size = 1, method="lm") +
+  labs(
+    title = "Regression Lines by CAC Group",
+    x = "Age",
+    y = "GFR",
+    color = "CAC Group"
+  ) +
+  theme_minimal()
+
+resid_hier <- residuals(hierarchical_model)
+fitted_hier <- fitted.values(hierarchical_model)
+
+qqnorm(resid_hier, main = "QQ-plot of Model Residuals")
+qqline(resid_hier, col="red")
+
+shapiro.test(resid_hier)
+## Normality violation
+
+##Fits Vs Residuals plot
+plot(resid_hier ~ fitted_hier, main="Fits vs Resids Plot Hierarchical Model")
+abline(h=0, col="red")
+
+### Megaphone behavior, looks like non-constant variance on top of non-normality
+
+hierarchical_model2 <- lmer(log(GFR) ~ age + sex + HTN + Obesity +(1 | CAC.group),  
+                            data = cac_data)
+summary(hierarchical_model2)
+coeffs_hierarch2 <- coef(summary(hierarchical_model2))
+p <- pnorm(abs(coeffs_hierarch2[, "t value"]), lower.tail = FALSE) * 2
+cbind(coeffs_hierarch2, "p value" = round(p,3))
+
+cac_data$predict_hier2 <- predict(hierarchical_model2, re.form = ~(1 | CAC.group))
+
+ggplot(cac_data, aes(x = age, y = log(GFR), color = as.factor(CAC.group))) +
+  geom_point(alpha = 0.6) +
+  geom_smooth(aes(y = predict_hier2), size = 1, method="lm") +   # Add predicted regression lines
+  labs(
+    title = "Regression Lines by CAC Group",
+    x = "Age",
+    y = "Log GFR",
+    color = "CAC Group"
+  ) +
+  theme_minimal()
+
+resid_hier2 <- residuals(hierarchical_model2)
+fitted_hier2 <- fitted.values(hierarchical_model2)
+
+qqnorm(resid_hier2, main = "QQ-plot of Model Residuals")
+qqline(resid_hier2, col="red")
+
+shapiro.test(resid_hier2)
+## Normality violation
+
+##Fits Vs Residuals plot
+plot(resid_hier2 ~ fitted_hier2, main="Fits vs Resids Plot Hierarchical Model")
+abline(h=0, col="red")
+
+complete_pooling <- lm(log(GFR)~ age + sex + HTN + Obesity, data=cac_data)
+
+summary(complete_pooling)
+
+complete_resid <- residuals(complete_pooling)
+complete_fits <- fitted.values(complete_pooling)
+
+qqnorm(complete_resid, main = "QQ-plot of Model Residuals")
+qqline(complete_resid, col="red")
+
+shapiro.test(complete_resid)
+## Normality violation
+
+##Fits Vs Residuals plot
+plot(complete_resid ~ complete_fits, main="Fits vs Resids Plot Complete Pooling")
+abline(h=0, col="red")
+
+cac_data$predict_complete <- predict(complete_pooling)
+
+ggplot(cac_data, aes(x = age, y = log(GFR))) +
+  geom_point(alpha = 0.6) +
+  geom_smooth(aes(y = predict_complete), size = 1, method="lm") +   # Add predicted regression lines
+  labs(
+    title = "Regression Line For Complete Pooling",
+    x = "Age",
+    y = "Log(GFR)"
+  ) +
+  theme_minimal()
+
+no_pool <- lm(
+  log(GFR) ~  age + sex + HTN + Obesity + CAC.group -1 +TC ,  
+  data = cac_data)
+summary(no_pool)
+
+cac_data$predict_no_pool <- predict(no_pool)
+
+ggplot(cac_data, aes(x = age, y = predict_no_pool, color = CAC.group)) +
+  geom_point(alpha = 0.7) +        # Scatter plot of predicted values
+  geom_line(stat = "smooth", method = "lm", se = FALSE) + # Add trend lines
+  facet_wrap(~ CAC.group, scales = "free_y") +  # Create separate panels for each CAC.group
+  theme_minimal() +                
+  labs(
+    title = "Predicted log(GFR) by Age for Each CAC Group, No Pooling",
+    x = "Age",
+    y = "Predicted log(GFR)",
+    color = "CAC Group"
+  )
+
+mse <- function(actual, predicted) {
+  mean((actual - predicted)^2)
+}
+
+mse_no_pool <- mse(cac_data$GFR, cac_data$predict_no_pool)
+mse_complete_pool <- mse(cac_data$GFR, cac_data$predict_complete)
+mse_partial_pool <- mse(cac_data$GFR, cac_data$predict_hier2)
+
+list(
+  MSE_No_Pooling = mse_no_pool,
+  MSE_Complete_Pooling = mse_complete_pool,
+  MSE_Partial_Pooling = mse_partial_pool
+)
+
+
+
+```
